@@ -106,7 +106,8 @@ xhttp.onreadystatechange = function() {
 
 	}
 }
-xhttp.open("GET", "../../kml/locations.xml", true);
+//xhttp.open("GET", "../../kml/locations.xml", true);
+xhttp.open('GET','../kml/locations.xml',true);
 //xhttp.open("GET","http://mars.jpl.nasa.gov/msl-raw-images/locations.xml",true);
 xhttp.send();
 }
