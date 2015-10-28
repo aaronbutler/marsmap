@@ -1,0 +1,441 @@
+<!doctype html>
+<html lang="en" data-framework="knockoutjs">
+<head>
+	<meta charset="utf-8">
+	<title>Knockout Mars Map</title>
+	<script>
+		var Log = function(level) {
+			this.level = level;
+		};
+		Log.prototype.log = function(level, objname, methodname, message, object) {
+			if(level < this.level) {
+				return;
+			}
+			console.log(objname + '-' + methodname + ':' + message);
+			if(object != null) {
+				console.dir(object);
+			}
+		};
+		var l = new Log(3);
+	</script>
+	<script src="http://www.google.com/mars/javascript/marsmap.js"></script>
+	<script src="https://ajax.googleapis.com/ajax/libs/jquery/1.11.3/jquery.min.js"></script>
+	<script src="https://cdnjs.cloudflare.com/ajax/libs/knockout/3.3.0/knockout-min.js"></script>
+	<script src="http://maps.googleapis.com/maps/api/js"></script>
+	<script src="js/MarsUtils.js"></script>
+	
+	  <style>
+/*begin thievery*/
+  .tabs {
+  position: relative;   
+  min-height: 300px; /* This part sucks */
+  clear: both;
+  margin: 25px 0;
+  width: 350px;
+}
+.tab {
+  float: left;
+}
+.tab label {
+  background: #eee; 
+  padding: 10px; 
+  border: 1px solid #ccc; 
+  margin-left: -1px; 
+  position: relative;
+  left: 1px; 
+}
+.tab [type=radio] {
+  display: none;   
+}
+.content {
+  position: absolute;
+  top: 28px;
+  left: 0;
+  background: white;
+  right: 0;
+  bottom: 0;
+  padding: 20px;
+  border: 1px solid #ccc; 
+}
+[type=radio]:checked ~ label {
+  background: white;
+  border-bottom: 1px solid white;
+  z-index: 2;
+}
+[type=radio]:checked ~ label ~ .content {
+  z-index: 1;
+}
+/*end thievery */
+  .containerPic {
+	width: 200px;
+	height: 200px;
+  }
+  </style>
+</head>
+<body>
+	<input id="solNumber" data-bind="value: solNumber"></input>
+	<button id="solButton" data-bind="click: changeSol">Click</button>
+	<div id="map" data-bind="style:{width:'700px',height:'500px'},map:mars"></div>
+	<div id="caption"></div>
+	<div id="copyright"></div>
+
+	<div id="infoContainer" style="display:none;"><div id="infoWindow">
+		<div id="infoContent" data-bind="text: solthText"></div><div class="tabs"><div class="tab"><input type="radio" id="tab-1" name="tab-group-1" checked><label for="tab-1">Pictures</label><div id="pictureContent" class="content" ><div data-bind="text: picText"></div><span data-bind="ifnot: picZero"><button data-bind="click: prevPic">left</button></span><img class="containerPic" data-bind="attr: { src:currentPicSrc }" /><span data-bind="ifnot: picLast"><button data-bind="click: nextPic">right</button></span></div></div><div class="tab"><input type="radio" id="tab-2" name="tab-group-1"><label for="tab-2">Weather</label><div id="weatherContent" class="content" data-bind="html:currentWeatherData">stuff 2</div></div><div class="tab"><input type="radio" id="tab-3" name="tab-group-1"><label for="tab-3">Three</label><div class="content"><!--<img src="http://mars.jpl.nasa.gov/msl-raw-images/proj/msl/redops/ods/surface/sol/00015/opgs/edr/ccam/CR0_398824843EDR_F0030004CCAM01015M_.JPG"></img>--></div> </div></div>
+	
+	</div></div>
+	<div>Here comes some stuffin</div>
+	<div id="currentPicSrc" data-bind="text: currentPicSrc">currentPicSrc</div>
+	<script>
+		$(document).ready(function () {   
+			ko.applyBindings(viewModel);
+		});
+		
+		//initialize the path information
+		function MarsViewModel() {
+			var self = this;
+			
+			var d = new Date();
+			d.setFullYear(2012, 7, 6);
+			self.solendar = ko.observable(new Solendar(0,d));
+			
+			self.solNumber = ko.observable();
+			self.currentPicData = ko.observable();
+			self.currentPicArray = ko.observable();
+			self.currentPicId = ko.observable();
+			self.picText = ko.computed(function() {
+				if(self.currentPicId() == undefined || self.currentPicArray() == undefined) {return '';}
+				return 'Picture '+ (self.currentPicId()+1) + ' of '+ (self.currentPicArray().length); 
+			});
+			self.picZero = ko.computed(function() {
+				if (self.currentPicId() == undefined || self.currentPicId()==null){return true;}
+				return self.currentPicId() == 0;
+			});
+			self.picLast = ko.computed(function() {
+				if(self.currentPicId() == undefined||self.currentPicId() == null) {return true;}
+				return self.currentPicId() + 1 == self.currentPicArray().length;
+			});
+			self.currentPicSrc = ko.computed(function() {
+				var _s = self.currentPicArray();
+				var _id = self.currentPicId();
+				var src;
+				if(_s != undefined && _id != undefined) {
+					src = _s[_id];
+				}
+				else {
+					src='';
+				}
+				return src;
+			},this);
+			
+			self.prevPic = function() {
+				this.currentPicId(this.currentPicId()-1);
+			}
+			
+			self.nextPic = function() {
+				this.currentPicId(this.currentPicId()+1);
+			}
+			
+			self.currentWeatherData = ko.observable();
+			self.changeSol = function() {
+				//console.dir(this.infoWindow);
+
+				//var subSol = {sols: self.sols.sols};
+				if(this.subLine() != undefined) {this.subLine().setMap(null);}
+				var solArray = this.sols().sols;
+				//console.log('changeSol: '+solArray.length);
+				this.subPoints(makePointsArray({sols: solArray.slice(0,this.solNumber())}));
+				this.subLine(makePath(this.mars().googleMap, this.subPoints));
+				animateCircle(this.subLine);
+				
+				var picLink = 'http://msl-raws.s3.amazonaws.com/images/images_sol'+this.solNumber()+'.json';
+				var _this = this;
+				$.ajax({
+					  // The 'type' property sets the HTTP method.
+					  // A value of 'PUT' or 'DELETE' will trigger a preflight request.
+					  type: 'GET',
+
+					  // The URL to make the request to.
+					  url: picLink,
+
+					  // The 'contentType' property sets the 'Content-Type' header.
+					  // The JQuery default for this property is
+					  // 'application/x-www-form-urlencoded; charset=UTF-8', which does not trigger
+					  // a preflight. If you set this value to anything other than
+					  // application/x-www-form-urlencoded, multipart/form-data, or text/plain,
+					  // you will trigger a preflight request.
+					  contentType: 'text/plain',
+					  
+					  success: function(result) {
+						//console.dir(viewModel.sols()[viewModel.solNumber()]);
+						//var text = prettyJson(result);
+						var text = solPicArray(result);
+						//console.log('PicArrayLength: '+text.length);
+						
+						if(text.length > 0) {
+							_this.currentPicArray(text);
+							_this.currentPicId(0);
+							//$('#pictureContent').append(text);
+							//console.log(link);
+							_this.currentPicData(text);
+						}
+						else {
+							_this.currentPicArray([]);
+							_this.currentPicId(null);
+						}
+						
+						if(_this.infoWindow == undefined || _this.infoWindow == null) {
+
+							_this.infoWindow = new google.maps.InfoWindow();
+							_this.infoContent = $('#infoWindow');
+							_this.infoWindow.setContent(_this.infoContent[0]);
+							google.maps.event.addListener(_this.infoWindow, 'closeclick', function() {
+								$('#infoContainer').append(_this.infoContent[0]);
+							});
+						}
+						var lastLocL = _this.subPoints().length;
+						var windowLoc = _this.subPoints()[lastLocL-1];
+						//console.dir(windowLoc);
+						_this.infoWindow.setPosition(windowLoc);
+						_this.infoWindow.open(_this.mars().googleMap);
+						//console.dir(_this.infoWindow.content);
+					  },
+					  
+					  error: function(e) {
+						console.dir(e);
+					  }
+				});
+				
+				var weatherLink = 'http://marsweather.ingenology.com/v1/archive/?format=json&sol='+this.solNumber();
+				$.ajax({
+					type: 'GET',
+					url: weatherLink,
+					//contentType: 'text/plain',
+					success: function(result) {
+						var text = prettyJson(result);
+						_this.currentWeatherData(text);
+					},
+					
+					error: function(e) {
+						console.dir(e);
+					  }
+				});
+  
+  
+  
+				//var xhttp = new XMLHttpRequest();
+				/*var xhttp = createCORSRequest('GET',link);
+				var ab;
+				//xhttp.responseType = 'text';
+
+				xhttp.onreadystatechange = function() {
+
+					if (xhttp.readyState == 4 && xhttp.status == 200) {
+					   ab = xhttp.responseText;
+
+						var obj = prettyJson(ab);
+
+						$('#pictureContent').append(obj);
+
+					}
+				}
+				//xhttp.open("GET", link, true);
+				//xhttp.open("GET","http://mars.jpl.nasa.gov/msl-raw-images/locations.xml",true);
+				xhttp.send();*/
+				//console.dir(this.solendar().firstDate);
+			}
+			self.mars = ko.observable({googleMap: null});
+			self.sols = ko.observable();
+			self.points = ko.observableArray();
+			self.line = ko.observable();
+			self.subLine = ko.observable();
+			self.subPoints = ko.observableArray();
+			self.solthText = ko.computed(function() {
+				var _s = self.solendar();
+				var solth = self.solNumber();
+				var d = _s.SolToDate(solth);
+				return 'On the '+_s.Solth(solth) + ' sol ('+ d.toLocaleDateString()+'):';
+			},this);
+			
+			//self.infoWindow = new google.maps.InfoWindow();
+			//self.infoWindow.setContent(document.getElementById('infoContent'));
+			
+			//self.coincidenceCallbackRegistry = [];
+			self.makePath = function() {
+				//console.log("making line");
+				self.line(makePath(self.mars().googleMap, self.points));
+				self.line().icons = null;
+				//animateCircle(self.line);
+			};
+			self.coincidenceCallbackRegistry = ko.observable({
+				registry: {},
+				register: function(name, reqs, callback) {
+					//console.log("making registry register: "+ name+": " + reqs);
+					this.registry[name] = {reqs: reqs,callback: callback};
+					//console.dir(this);
+				},
+				
+				memberReady: function(name, member) {
+					//console.log("member ready");
+					//console.dir(this);
+					//var i = this.registry.indexOf(name);
+					//if(i > -1) {
+						var entry = this.registry[name];
+						if(entry != null) {
+							var index = entry.reqs.indexOf(member);
+							if(index > -1) {
+								entry.reqs.splice(index,1);
+								if (entry.reqs.length == 0) {
+									entry.callback();
+									//this.registry.splice(i,1);
+									this.registry[name] = null;
+								}
+							}
+						}
+					//}
+					//console.dir(this);
+				}
+			});
+			
+			self.coincidenceCallbackRegistry().register('path',['locationWorker','googleMap'],self.makePath);
+			
+			var worker = new Worker('js/locationWorker.js');
+			worker.sols = self.sols;
+			worker.points = self.points;
+			worker.postMessage({});
+			worker.onmessage = function(e) {
+				//console.dir(e.data);
+				this.sols(e.data);
+				//console.dir(this.sols());
+				worker.terminate();
+
+				this.points(makePointsArray(this.sols()));
+				self.coincidenceCallbackRegistry().memberReady('path','locationWorker');
+
+			};
+			
+			
+
+		};
+		
+		ko.bindingHandlers.map = {
+			init: function (element, valueAccessor, allBindingsAccessor, viewModel) {
+				var map = ko.utils.unwrapObservable(valueAccessor());
+				/*var latLng = new google.maps.LatLng(
+					ko.utils.unwrapObservable(mapObj.lat),
+					ko.utils.unwrapObservable(mapObj.lng));*/
+				var latLng = new google.maps.LatLng(-4.5,137);
+				var mapOptions = { center: latLng,
+					zoom: 8, 
+					//mapTypeId: google.maps.MapTypeId.ROADMAP
+				};
+
+				map.googleMap = new google.maps.Map(element, mapOptions);
+				addMarsMapTypes(map.googleMap, document.getElementById('caption'), document.getElementById('copyright'));
+				map.googleMap.setMapTypeId('infrared');
+				var quadLayer = new google.maps.KmlLayer({
+					//url: 'http://aaronbutler.github.io/kmls/quadrants.kml',
+					url: 'http://aaronbutler.github.io/marsmap/kml/quadrants.kml',
+					map: map.googleMap
+				});
+				viewModel.coincidenceCallbackRegistry().memberReady('path','googleMap');
+			}
+		}
+		
+		var viewModel = new MarsViewModel();
+		
+		//Take every lat/long point on the sols and put them in an ordered array, and return
+		var makePointsArray = function(sols) {
+			var solArray = sols.sols;
+			var pointArray = [];
+			for(var i=0,l=solArray.length;i<l;i++) {
+				var locArray = solArray[i].locations;
+				for(j=0,e = locArray.length;j<e;j++) {
+					var lat = parseFloat(locArray[j].lat);
+					var lon = parseFloat(locArray[j].lon);
+					pointArray.push({lat: lat, lng: lon});
+				}
+			}
+			return pointArray;
+		}
+		
+		
+		// Create the polyline and add the symbol to it via the 'icons' property.
+		var makePath = function(map, points) {
+			// Define the symbol, using one of the predefined paths ('CIRCLE')
+			// supplied by the Google Maps JavaScript API.
+			//l.log(5,'asdf','fdsa','points length: '+points().length,points()[5]);
+			var lineSymbol = {
+				path: google.maps.SymbolPath.CIRCLE,
+				scale: 8,
+				strokeColor: '#393'
+			};
+			//points.push({lat: -4.3, lng: 136});
+			var _p = points instanceof Function ? points() : points;
+			var line = new google.maps.Polyline({
+				//path: [{lat: 22.291, lng: 153.027}, {lat: 18.291, lng: 153.027}, {lat: 17.291, lng: 155.027}, {lat: 16.291, lng: 154.027}],
+				path: _p,
+				icons: [{
+					icon: lineSymbol,
+					offset: '0%'
+				}],
+				map: map
+			});
+			return line;
+		};
+		
+		// Use the DOM setInterval() function to change the offset of the symbol
+		// at fixed intervals.
+		function animateCircle(line) {
+			var _l = line instanceof Function ? line() : line;
+			var count = 0;
+			var id = window.setInterval(function() {
+				//if(_l.getPath())
+			  count = (count + 1) % 201;//it should end
+
+			  var icons = _l.get('icons');
+			  icons[0].offset = (count / 2) + '%';
+			  _l.set('icons', icons);
+			  if(count/2 == 100) {window.clearInterval(id);}
+		  }, 20);
+		};
+		
+		function prettyJson(text) {
+			var obj = text;
+
+			var objstr = JSON.stringify(obj,null,'**');//puts asterisks in logical locations
+			objstr = objstr.replace(/[{}]/g,'');//replaces all curly braces with nothing
+
+			var t = objstr.replace(/\*\**[^\*]*/g,function replacer(match){
+				var l = match.length;
+
+				return '<br />'+match.substring(1).replace(/\*/g,'-');//replaces the first asterisk with a br/ and the rest with dashes
+			} );
+			return t;
+		};
+		
+		function solPicArray(text) {
+			var obj = text;
+			var pics = [];
+			var instruments = ['ccam_images','fcam_images','rcam_images','ncam_images','mastcam_left_images','mastcam_right_images','mahli_images','mardi_images'];
+			//console.dir(obj);
+			//console.dir(Object.keys(obj));
+			for(var i=0,l=instruments.length;i<l;i++) {
+				//console.log('In solPicArray: '+instruments[i]);
+				var instData = obj[instruments[i]];
+				//console.dir(instData);
+				for(var m=0,n=instData.length;m<n;m++) {
+					var instPics = instData[m]['images'];
+					//console.dir(instPics);
+					if(instPics != undefined) {
+						for (var j=0,k=instPics.length;j<k;j++) {
+							pics.push(instPics[j]['url']);
+						}
+					}
+				}
+			}
+			//console.dir(pics);
+			return pics;
+		}
+	</script>
+</body>
+</html>
